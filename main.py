@@ -35,9 +35,12 @@ def handle_webhook():
 def health_check():
     return jsonify({"status": "healthy"}), 200
 
-@app.route('/', methods=['GET'])
+@app.route('/', methods=['GET', 'POST'])
 def root():
-    return jsonify({"message": "Intercom Webhook Handler"}), 200
+    if request.method == 'GET':
+        return jsonify({"message": "Intercom Webhook Handler"}), 200
+    elif request.method == 'POST':
+        return handle_webhook()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
