@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 from asana_client import AsanaClient
+import sys
 
 app = Flask(__name__)
 
@@ -32,9 +33,6 @@ def handle_webhook():
         topic = data.get('topic')
 
         print(f"Получен webhook - Topic: {topic}, Conversation ID: {conversation_id}")
-
-        # Логируем полученные данные для отладки
-        print(f"Полные данные webhook: {data}")
 
         if not asana_client:
             print("Asana клиент не настроен")
@@ -85,9 +83,7 @@ def handle_webhook():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """
-    Проверка здоровья сервиса
-    """
+    #Проверка здоровья сервиса
     status = {
         "status": "healthy",
         "asana_client_configured": asana_client is not None,
@@ -104,9 +100,7 @@ def health_check():
 
 @app.route('/test-search/<conversation_id>', methods=['GET'])
 def test_search(conversation_id):
-    """
-    Тестовый эндпоинт для поиска задачи по conversation ID
-    """
+    #Тестовый эндпоинт для поиска задачи по conversation ID
     if not asana_client:
         return jsonify({"error": "Asana client not configured"}), 400
 
@@ -139,6 +133,23 @@ def root():
     elif request.method == 'POST':
         return handle_webhook()
 
+@app.route('/debug', methods=['GET'])
+def debug_env():
+    #Дебаг-эндпоинт для проверки переменных окружения
+    env_vars = {
+        "ASANA_ACCESS_TOKEN": "***СКРЫТО***" if os.environ.get('ASANA_ACCESS_TOKEN') else "НЕ УСТАНОВЛЕН",
+        "ASANA_PROJECT_GID": os.environ.get('ASANA_PROJECT_GID', 'НЕ УСТАНОВЛЕН'),
+        "ASANA_TARGET_SECTION_GID": os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН'),
+        "PORT": os.environ.get('PORT', 'НЕ УСТАНОВЛЕН'),
+        "DEBUG": os.environ.get('DEBUG', 'НЕ УСТАНОВЛЕН'),
+    }
+
+    return jsonify({
+        "environment_variables": env_vars,
+        "asana_client_initialized": asana_client is not None,
+        "all_env_vars_count": len(os.environ),
+        "python_version": os.sys.version
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
