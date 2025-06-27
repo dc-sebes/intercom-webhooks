@@ -1,7 +1,6 @@
 import os
 import re
 import asana
-from asana.rest import ApiException
 
 
 class AsanaClient:
@@ -15,18 +14,13 @@ class AsanaClient:
         if not self.project_gid:
             raise ValueError("ASANA_PROJECT_GID environment variable is required")
 
-        configuration = asana.Configuration()
-        configuration.access_token = self.access_token
-        self.api_client = asana.ApiClient(configuration)
-        self.tasks_api = asana.TasksApi(self.api_client)
-        self.sections_api = asana.SectionsApi(self.api_client)
-        self.attachments_api = asana.AttachmentsApi(self.api_client)
-        self.projects_api = asana.ProjectsApi(self.api_client)
+        # Инициализация клиента Asana
+        self.client = asana.Client.access_token(self.access_token)
 
     def extract_conversation_id_from_url(self, url):
-        #Извлекает conversation ID из URL Intercom
-        #Например: https://app.eu.intercom.com/a/inbox/grcvqyws/inbox/shared/all/conversation/4137#part_id=comment-4137-23555
-        #Возвращает: 4137
+        # Извлекает conversation ID из URL Intercom
+        # Например: https://app.eu.intercom.com/a/inbox/grcvqyws/inbox/shared/all/conversation/4137#part_id=comment-4137-23555
+        # Возвращает: 4137
         if not url:
             return None
 
@@ -38,28 +32,25 @@ class AsanaClient:
         return None
 
     def get_project_tasks(self):
-        #Получает все задачи из указанного проекта
+        # Получает все задачи из указанного проекта
         try:
-            opts = {
+            tasks = self.client.tasks.find_all({
+                'project': self.project_gid,
                 'opt_fields': 'gid,name'
-            }
-
-            tasks = self.projects_api.get_tasks_for_project(self.project_gid, opts)
-            return tasks.get('data', [])
-        except ApiException as e:
+            })
+            return list(tasks)
+        except Exception as e:
             print(f"Ошибка при получении задач проекта {self.project_gid}: {e}")
             return []
 
     def get_task_attachments(self, task_gid):
         # Получает все attachments для задачи
         try:
-            opts = {
+            attachments = self.client.attachments.find_by_task(task_gid, {
                 'opt_fields': 'gid,name,resource_type,resource_subtype,url,view_url,host'
-            }
-
-            attachments = self.attachments_api.get_attachments_for_task(task_gid, opts)
-            return attachments.get('data', [])
-        except ApiException as e:
+            })
+            return list(attachments)
+        except Exception as e:
             print(f"Ошибка при получении attachments для задачи {task_gid}: {e}")
             return []
 
@@ -98,7 +89,7 @@ class AsanaClient:
             print(f"Задача с conversation ID {conversation_id} не найдена")
             return None
 
-        except ApiException as e:
+        except Exception as e:
             print(f"Ошибка при поиске задачи: {e}")
             return None
 
@@ -110,30 +101,26 @@ class AsanaClient:
                 print("Не указана целевая секция для перемещения задачи")
                 return False
 
-            body = {
-                'data': {
-                    'task': task_gid
-                }
-            }
+            # Добавляем задачу в секцию
+            self.client.sections.add_task(target_section, {
+                'task': task_gid
+            })
 
-            self.sections_api.add_task_for_section(target_section, body)
             print(f"Задача {task_gid} перемещена в секцию {target_section}")
             return True
 
-        except ApiException as e:
+        except Exception as e:
             print(f"Ошибка при перемещении задачи: {e}")
             return False
 
     def get_task_details(self, task_gid):
         # Получает детальную информацию о задаче
         try:
-            opts = {
+            task = self.client.tasks.find_by_id(task_gid, {
                 'opt_fields': 'gid,name,notes,completed,assignee,due_on,projects'
-            }
-
-            task = self.tasks_api.get_task(task_gid, opts)
+            })
             return task
 
-        except ApiException as e:
+        except Exception as e:
             print(f"Ошибка при получении деталей задачи {task_gid}: {e}")
             return None
