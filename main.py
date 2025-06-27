@@ -1,47 +1,148 @@
 from flask import Flask, request, jsonify
-import requests
-import json
 import os
+from asana_client import AsanaClient
 
 app = Flask(__name__)
 
+# Инициализация Asana клиента
+try:
+    asana_client = AsanaClient() if os.environ.get('ASANA_ACCESS_TOKEN') else None
+    if asana_client:
+        print("Asana клиент успешно инициализирован")
+        print(f"Проект: {asana_client.project_gid}")
+        print(f"Целевая секция: {asana_client.target_section_gid}")
+    else:
+        print("Asana клиент не инициализирован - отсутствует ASANA_ACCESS_TOKEN")
+except Exception as e:
+    print(f"Ошибка при инициализации Asana клиента: {e}")
+    asana_client = None
+
+
 @app.route('/intercom-webhook', methods=['POST'])
 def handle_webhook():
+    #Обработчик webhook'ов от Intercom
     try:
-        print("Headers:", dict(request.headers))
-        print("Raw data:", request.get_data())
-
         data = request.json
         if not data:
             print("Нет JSON данных в запросе")
             return jsonify({"status": "no data"}), 400
 
-        print("Получен webhook:", json.dumps(data, indent=2))
-
+        # Извлекаем данные из webhook'а
         conversation_id = data.get('data', {}).get('item', {}).get('id')
         topic = data.get('topic')
 
-        print(f"Topic: {topic}")
-        print(f"Conversation ID: {conversation_id}")
+        print(f"Получен webhook - Topic: {topic}, Conversation ID: {conversation_id}")
 
-        # Здесь добавить логику работы с Asana API
+        # Логируем полученные данные для отладки
+        print(f"Полные данные webhook: {data}")
 
-        return jsonify({"status": "ok"}), 200
+        if not asana_client:
+            print("Asana клиент не настроен")
+            return jsonify({"status": "ok", "message": "Asana client not configured"}), 200
+
+        if not conversation_id:
+            print("Conversation ID не найден в webhook данных")
+            return jsonify({"status": "ok", "message": "No conversation ID found"}), 200
+
+        # Ищем задачу по conversation ID
+        task = asana_client.find_task_by_conversation_id(conversation_id)
+
+        if task:
+            print(f"Найдена задача: {task['name']} (GID: {task['gid']})")
+
+            # Перемещаем задачу в целевую секцию
+            success = asana_client.move_task_to_section(task['gid'])
+
+            if success:
+                return jsonify({
+                    "status": "ok",
+                    "task_moved": True,
+                    "task_gid": task['gid'],
+                    "task_name": task['name'],
+                    "conversation_id": conversation_id
+                }), 200
+            else:
+                return jsonify({
+                    "status": "ok",
+                    "task_moved": False,
+                    "task_found": True,
+                    "task_gid": task['gid'],
+                    "error": "Не удалось переместить задачу"
+                }), 200
+        else:
+            print(f"Задача с Conversation ID {conversation_id} не найдена")
+            return jsonify({
+                "status": "ok",
+                "task_found": False,
+                "conversation_id": conversation_id,
+                "message": f"Task with conversation ID {conversation_id} not found"
+            }), 200
+
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка при обработке webhook: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "healthy"}), 200
+    """
+    Проверка здоровья сервиса
+    """
+    status = {
+        "status": "healthy",
+        "asana_client_configured": asana_client is not None,
+    }
+
+    if asana_client:
+        status.update({
+            "project_gid": asana_client.project_gid,
+            "target_section_configured": asana_client.target_section_gid is not None
+        })
+
+    return jsonify(status), 200
+
+
+@app.route('/test-search/<conversation_id>', methods=['GET'])
+def test_search(conversation_id):
+    """
+    Тестовый эндпоинт для поиска задачи по conversation ID
+    """
+    if not asana_client:
+        return jsonify({"error": "Asana client not configured"}), 400
+
+    task = asana_client.find_task_by_conversation_id(conversation_id)
+
+    if task:
+        return jsonify({
+            "found": True,
+            "task": task
+        }), 200
+    else:
+        return jsonify({
+            "found": False,
+            "conversation_id": conversation_id
+        }), 404
+
 
 @app.route('/', methods=['GET', 'POST'])
 def root():
+    #Корневой эндпоинт
     if request.method == 'GET':
-        return jsonify({"message": "Intercom Webhook Handler"}), 200
+        return jsonify({
+            "message": "Intercom Webhook Handler",
+            "endpoints": {
+                "webhook": "/intercom-webhook",
+                "health": "/health",
+                "test_search": "/test-search/<conversation_id>"
+            }
+        }), 200
     elif request.method == 'POST':
         return handle_webhook()
 
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get('PORT', 8080))
+    debug = os.environ.get('DEBUG', 'False').lower() == 'true'
+    print(f"Запуск сервера на порту {port}")
+    print(f"Debug режим: {debug}")
+    app.run(host='0.0.0.0', port=port, debug=debug)
