@@ -5,11 +5,25 @@ from asana_client import AsanaClient
 
 app = Flask(__name__)
 
+# Список email'ов, для которых НЕ нужно выполнять перенос задач в Asana
+EXCLUDED_EMAILS = [
+    "i.konovalov@sebestech.com",
+    "f.veips@sebestech.com",
+    "help@sebestech.com",
+    "support@sebestech.com",
+    "compliance@sebestech.com",
+    "k.danyleyko@sebestech.com",
+    "n.rozkalns@sebestech.com",
+    "a.vaver@sebestech.com",
+    "d.ciruks@sebestech.com"
+]
+
 # Инициализация Asana клиента
 print("=== Инициализация Asana клиента ===")
 print(f"ASANA_ACCESS_TOKEN установлен: {bool(os.environ.get('ASANA_ACCESS_TOKEN'))}")
 print(f"ASANA_PROJECT_GID: {os.environ.get('ASANA_PROJECT_GID', 'НЕ УСТАНОВЛЕН')}")
 print(f"ASANA_TARGET_SECTION_GID: {os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН')}")
+print(f"Исключенные email'ы: {EXCLUDED_EMAILS}")
 
 asana_client = None
 try:
@@ -31,6 +45,44 @@ except Exception as e:
     asana_client = None
 
 print("=== Конец инициализации Asana клиента ===\n")
+
+
+def extract_current_reply_author_email(webhook_data):
+    """
+    Извлекает email автора текущего ответа из webhook Intercom
+    """
+    try:
+        item = webhook_data.get('data', {}).get('item', {})
+        conversation_parts = item.get('conversation_parts', {}).get('conversation_parts', [])
+
+        if conversation_parts:
+            latest_part = conversation_parts[0]  # Последний ответ
+            author = latest_part.get('author', {})
+            return author.get('email')
+
+        return None
+
+    except Exception as e:
+        print(f"Ошибка при извлечении email автора: {e}")
+        return None
+
+
+def should_skip_processing(webhook_data):
+    """
+    Проверяет, нужно ли пропустить обработку webhook'а на основе email автора
+    """
+    author_email = extract_current_reply_author_email(webhook_data)
+
+    if not author_email:
+        print("❓ Не удалось определить email автора, продолжаем обработку")
+        return False
+
+    if author_email.lower() in [email.lower() for email in EXCLUDED_EMAILS]:
+        print(f"🚫 Email автора '{author_email}' в списке исключений, пропускаем обработку")
+        return True
+
+    print(f"✅ Email автора '{author_email}' НЕ в списке исключений, продолжаем обработку")
+    return False
 
 
 @app.route('/test-asana', methods=['GET'])
@@ -114,6 +166,15 @@ def handle_webhook():
 
         print(f"Получен webhook - Topic: {topic}, Conversation ID: {conversation_id}")
 
+        # Проверяем, нужно ли пропустить обработку на основе email автора
+        if should_skip_processing(data):
+            return jsonify({
+                "status": "skipped",
+                "reason": "Author email in exclusion list",
+                "conversation_id": conversation_id,
+                "topic": topic
+            }), 200
+
         # Логируем полученные данные для отладки
         print(f"Полные данные webhook: {data}")
 
@@ -162,6 +223,35 @@ def handle_webhook():
     except Exception as e:
         print(f"Ошибка при обработке webhook: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/test-email-filter', methods=['POST'])
+def test_email_filter():
+    """
+    Тестовый эндпоинт для проверки фильтрации email'ов
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        author_email = extract_current_reply_author_email(data)
+        should_skip = should_skip_processing(data)
+
+        return jsonify({
+            "webhook_received": True,
+            "author_email": author_email,
+            "excluded_emails": EXCLUDED_EMAILS,
+            "should_skip_processing": should_skip,
+            "would_process_normally": not should_skip,
+            "conversation_id": data.get('data', {}).get('item', {}).get('id'),
+            "topic": data.get('topic')
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Error testing email filter: {str(e)}"
+        }), 500
 
 
 @app.route('/health', methods=['GET'])
@@ -226,6 +316,7 @@ def root():
         }), 200
     elif request.method == 'POST':
         return handle_webhook()
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
