@@ -5,31 +5,43 @@ import asana
 
 class AsanaClient:
     def __init__(self):
+        print("=== Начало инициализации AsanaClient ===")
+
+        # Получаем переменные окружения
         self.access_token = os.environ.get('ASANA_ACCESS_TOKEN')
         self.target_section_gid = os.environ.get('ASANA_TARGET_SECTION_GID')
         self.project_gid = os.environ.get('ASANA_PROJECT_GID')
 
+        print(f"access_token получен: {bool(self.access_token)}")
+        print(f"target_section_gid: {self.target_section_gid}")
+        print(f"project_gid: {self.project_gid}")
+
+        # Проверяем обязательные переменные
         if not self.access_token:
+            print("ОШИБКА: ASANA_ACCESS_TOKEN не установлен")
             raise ValueError("ASANA_ACCESS_TOKEN environment variable is required")
         if not self.project_gid:
+            print("ОШИБКА: ASANA_PROJECT_GID не установлен")
             raise ValueError("ASANA_PROJECT_GID environment variable is required")
 
+        print("Переменные окружения проверены успешно")
+
         # Инициализация клиента Asana
-        self.client = asana.Client.access_token(self.access_token)
+        try:
+            print("Инициализация Asana клиента...")
+            self.client = asana.Client.access_token(self.access_token)
+            print("Asana клиент создан успешно")
 
-    def extract_conversation_id_from_url(self, url):
-        # Извлекает conversation ID из URL Intercom
-        # Например: https://app.eu.intercom.com/a/inbox/grcvqyws/inbox/shared/all/conversation/4137#part_id=comment-4137-23555
-        # Возвращает: 4137
-        if not url:
-            return None
+            # Проверяем подключение
+            print("Проверка подключения к Asana...")
+            me = self.client.users.me()
+            print(f"Подключение успешно! Пользователь: {me.get('name', 'Unknown')}")
 
-        # Ищем паттерн /conversation/NUMBER
-        match = re.search(r'/conversation/(\d+)', url)
-        if match:
-            return match.group(1)
+        except Exception as e:
+            print(f"ОШИБКА при инициализации Asana клиента: {type(e).__name__}: {e}")
+            raise e
 
-        return None
+        print("=== AsanaClient инициализирован успешно ===")
 
     def get_project_tasks(self):
         # Получает все задачи из указанного проекта

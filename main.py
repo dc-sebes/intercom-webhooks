@@ -6,17 +6,31 @@ import sys
 app = Flask(__name__)
 
 # Инициализация Asana клиента
+print("=== Инициализация Asana клиента ===")
+print(f"ASANA_ACCESS_TOKEN установлен: {bool(os.environ.get('ASANA_ACCESS_TOKEN'))}")
+print(f"ASANA_PROJECT_GID: {os.environ.get('ASANA_PROJECT_GID', 'НЕ УСТАНОВЛЕН')}")
+print(f"ASANA_TARGET_SECTION_GID: {os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН')}")
+
+asana_client = None
 try:
-    asana_client = AsanaClient() if os.environ.get('ASANA_ACCESS_TOKEN') else None
-    if asana_client:
-        print("Asana клиент успешно инициализирован")
+    if os.environ.get('ASANA_ACCESS_TOKEN'):
+        print("Создание AsanaClient...")
+        asana_client = AsanaClient()
+        print("✅ Asana клиент успешно инициализирован")
         print(f"Проект: {asana_client.project_gid}")
         print(f"Целевая секция: {asana_client.target_section_gid}")
     else:
-        print("Asana клиент не инициализирован - отсутствует ASANA_ACCESS_TOKEN")
+        print("❌ Asana клиент не инициализирован - отсутствует ASANA_ACCESS_TOKEN")
 except Exception as e:
-    print(f"Ошибка при инициализации Asana клиента: {e}")
+    print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при инициализации Asana клиента:")
+    print(f"   Тип ошибки: {type(e).__name__}")
+    print(f"   Сообщение: {e}")
+    import traceback
+    print(f"   Полный traceback:")
+    traceback.print_exc()
     asana_client = None
+
+print("=== Конец инициализации Asana клиента ===\n")
 
 
 @app.route('/intercom-webhook', methods=['POST'])
