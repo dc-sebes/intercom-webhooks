@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import os
-from asana_client import AsanaClient
 import sys
+from asana_client import AsanaClient
 
 app = Flask(__name__)
 
@@ -33,9 +33,75 @@ except Exception as e:
 print("=== Конец инициализации Asana клиента ===\n")
 
 
+@app.route('/test-asana', methods=['GET'])
+def test_asana():
+    """
+    Тестовый эндпоинт для проверки подключения к Asana
+    """
+    if not asana_client:
+        return jsonify({
+            "error": "Asana client not initialized",
+            "suggestion": "Check /debug endpoint for environment variables"
+        }), 500
+
+    try:
+        # Тестируем базовое подключение
+        user_info = asana_client.get_user_info()
+
+        if not user_info:
+            return jsonify({
+                "error": "Could not get user info from Asana API"
+            }), 500
+
+        # Тестируем получение задач из проекта
+        tasks = asana_client.get_project_tasks()
+
+        return jsonify({
+            "asana_connection": "OK",
+            "user_info": {
+                "name": user_info.get('name'),
+                "email": user_info.get('email'),
+                "gid": user_info.get('gid')
+            },
+            "project_info": {
+                "project_gid": asana_client.project_gid,
+                "tasks_count": len(tasks),
+                "sample_tasks": [{"gid": t["gid"], "name": t["name"]} for t in tasks[:3]]  # Показываем первые 3 задачи
+            },
+            "target_section_gid": asana_client.target_section_gid
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Asana API Error: {type(e).__name__}: {str(e)}",
+            "suggestion": "Check your Asana token and project GID"
+        }), 500
+
+
+@app.route('/debug', methods=['GET'])
+def debug_env():
+    """
+    Дебаг-эндпоинт для проверки переменных окружения
+    """
+    env_vars = {
+        "ASANA_ACCESS_TOKEN": "***СКРЫТО***" if os.environ.get('ASANA_ACCESS_TOKEN') else "НЕ УСТАНОВЛЕН",
+        "ASANA_PROJECT_GID": os.environ.get('ASANA_PROJECT_GID', 'НЕ УСТАНОВЛЕН'),
+        "ASANA_TARGET_SECTION_GID": os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН'),
+        "PORT": os.environ.get('PORT', 'НЕ УСТАНОВЛЕН'),
+        "DEBUG": os.environ.get('DEBUG', 'НЕ УСТАНОВЛЕН'),
+    }
+
+    return jsonify({
+        "environment_variables": env_vars,
+        "asana_client_initialized": asana_client is not None,
+        "all_env_vars_count": len(os.environ),
+        "python_version": sys.version
+    }), 200
+
+
 @app.route('/intercom-webhook', methods=['POST'])
 def handle_webhook():
-    #Обработчик webhook'ов от Intercom
+    """Обработчик webhook'ов от Intercom"""
     try:
         data = request.json
         if not data:
@@ -48,9 +114,12 @@ def handle_webhook():
 
         print(f"Получен webhook - Topic: {topic}, Conversation ID: {conversation_id}")
 
+        # Логируем полученные данные для отладки
+        print(f"Полные данные webhook: {data}")
+
         if not asana_client:
             print("Asana клиент не настроен")
-            return jsonify({"status": "ok", "message": "Asana client not configured"}), 200
+            return jsonify({"status": "error", "message": "Asana client not configured"}), 500
 
         if not conversation_id:
             print("Conversation ID не найден в webhook данных")
@@ -97,10 +166,17 @@ def handle_webhook():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    #Проверка здоровья сервиса
+    """
+    Проверка здоровья сервиса
+    """
     status = {
         "status": "healthy",
         "asana_client_configured": asana_client is not None,
+        "environment_check": {
+            "ASANA_ACCESS_TOKEN": bool(os.environ.get('ASANA_ACCESS_TOKEN')),
+            "ASANA_PROJECT_GID": bool(os.environ.get('ASANA_PROJECT_GID')),
+            "ASANA_TARGET_SECTION_GID": bool(os.environ.get('ASANA_TARGET_SECTION_GID')),
+        }
     }
 
     if asana_client:
@@ -114,7 +190,9 @@ def health_check():
 
 @app.route('/test-search/<conversation_id>', methods=['GET'])
 def test_search(conversation_id):
-    #Тестовый эндпоинт для поиска задачи по conversation ID
+    """
+    Тестовый эндпоинт для поиска задачи по conversation ID
+    """
     if not asana_client:
         return jsonify({"error": "Asana client not configured"}), 400
 
@@ -134,40 +212,25 @@ def test_search(conversation_id):
 
 @app.route('/', methods=['GET', 'POST'])
 def root():
-    #Корневой эндпоинт
+    """Корневой эндпоинт"""
     if request.method == 'GET':
         return jsonify({
             "message": "Intercom Webhook Handler",
             "endpoints": {
                 "webhook": "/intercom-webhook",
                 "health": "/health",
+                "debug": "/debug",
+                "test_asana": "/test-asana",
                 "test_search": "/test-search/<conversation_id>"
             }
         }), 200
     elif request.method == 'POST':
         return handle_webhook()
 
-@app.route('/debug', methods=['GET'])
-def debug_env():
-    #Дебаг-эндпоинт для проверки переменных окружения
-    env_vars = {
-        "ASANA_ACCESS_TOKEN": "***СКРЫТО***" if os.environ.get('ASANA_ACCESS_TOKEN') else "НЕ УСТАНОВЛЕН",
-        "ASANA_PROJECT_GID": os.environ.get('ASANA_PROJECT_GID', 'НЕ УСТАНОВЛЕН'),
-        "ASANA_TARGET_SECTION_GID": os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН'),
-        "PORT": os.environ.get('PORT', 'НЕ УСТАНОВЛЕН'),
-        "DEBUG": os.environ.get('DEBUG', 'НЕ УСТАНОВЛЕН'),
-    }
-
-    return jsonify({
-        "environment_variables": env_vars,
-        "asana_client_initialized": asana_client is not None,
-        "all_env_vars_count": len(os.environ),
-        "python_version": os.sys.version
-    }), 200
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     print(f"Запуск сервера на порту {port}")
     print(f"Debug режим: {debug}")
+    print(f"Asana клиент инициализирован: {asana_client is not None}")
     app.run(host='0.0.0.0', port=port, debug=debug)
