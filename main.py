@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import sys
 from asana_client import AsanaClient
+from intercom_client import IntercomClient
 
 app = Flask(__name__)
 
@@ -46,6 +47,31 @@ except Exception as e:
 
 print("=== Конец инициализации Asana клиента ===\n")
 
+# Инициализация Intercom клиента
+print("=== Инициализация Intercom клиента ===")
+print(f"INTERCOM_ACCESS_TOKEN установлен: {bool(os.environ.get('INTERCOM_ACCESS_TOKEN'))}")
+
+intercom_client = None
+try:
+    if os.environ.get('INTERCOM_ACCESS_TOKEN'):
+        print("Создание IntercomClient...")
+        intercom_client = IntercomClient()
+        print("✅ Intercom клиент успешно инициализирован")
+    else:
+        print("❌ Intercom клиент не инициализирован - отсутствует INTERCOM_ACCESS_TOKEN")
+except Exception as e:
+    print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при инициализации Intercom клиента:")
+    print(f"   Тип ошибки: {type(e).__name__}")
+    print(f"   Сообщение: {e}")
+    import traceback
+    print(f"   Полный traceback:")
+    traceback.print_exc()
+    asana_client = None
+
+print("=== Конец инициализации Intercom клиента ===\n")
+
+def generate_asana_task_url(project_gid, task_gid):
+    return f"https://app.asana.com/0/{project_gid}/{task_gid}"
 
 def extract_current_reply_author_email(webhook_data):
     """
@@ -93,7 +119,7 @@ def test_asana():
     if not asana_client:
         return jsonify({
             "error": "Asana client not initialized",
-            "suggestion": "Check /debug endpoint for environment variables"
+            "suggestion": "Check/debug endpoint for environment variables"
         }), 500
 
     try:
@@ -129,6 +155,25 @@ def test_asana():
             "suggestion": "Check your Asana token and project GID"
         }), 500
 
+@app.route('/test-intercom', methods=['GET'])
+def test_intercom():
+    if not intercom_client:
+        return jsonify({
+            "error": "Intercom client not initialized",
+            "suggestion": "Check your Intercom token"
+        }), 500
+
+    try:
+        me_info = intercom_client.intercom_me()
+    except Exception as e:
+        return jsonify({
+            "error": f"Intercom API Error: {type(e).__name__}: {str(e)}",
+            "suggestion": "Check your Intercom token"
+        }), 500
+
+    return jsonify({
+        "me": me_info
+    }), 200
 
 @app.route('/debug', methods=['GET'])
 def debug_env():
@@ -141,6 +186,7 @@ def debug_env():
         "ASANA_TARGET_SECTION_GID": os.environ.get('ASANA_TARGET_SECTION_GID', 'НЕ УСТАНОВЛЕН'),
         "PORT": os.environ.get('PORT', 'НЕ УСТАНОВЛЕН'),
         "DEBUG": os.environ.get('DEBUG', 'НЕ УСТАНОВЛЕН'),
+        "INTERCOM_ACCESS_TOKEN": os.environ.get('INTERCOM_ACCESS_TOKEN', 'НЕ УСТАНОВЛЕН')
     }
 
     return jsonify({
@@ -211,6 +257,16 @@ def handle_webhook():
                     "task_gid": task['gid'],
                     "error": "Не удалось переместить задачу"
                 }), 200
+
+            asana_task_url = generate_asana_task_url(asana_client.project_gid, task['gid'])
+            print(f"Ссылка на задачу в Asana: {asana_task_url}")
+
+            link_result = intercom_client.set_conversation_asana_link(conversation_id, asana_task_url)
+            if link_result.get('updated'):
+                print(f"Ссылка на задачу в Asana успешно установлена для Conversation ID {conversation_id}")
+            else:
+                print(f"Не удалось установить ссылку на задачу в Asana для Conversation ID {conversation_id}")
+
         else:
             print(f"Задача с Conversation ID {conversation_id} не найдена")
             return jsonify({
@@ -223,35 +279,6 @@ def handle_webhook():
     except Exception as e:
         print(f"Ошибка при обработке webhook: {e}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route('/test-email-filter', methods=['POST'])
-def test_email_filter():
-    """
-    Тестовый эндпоинт для проверки фильтрации email'ов
-    """
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
-
-        author_email = extract_current_reply_author_email(data)
-        should_skip = should_skip_processing(data)
-
-        return jsonify({
-            "webhook_received": True,
-            "author_email": author_email,
-            "excluded_emails": EXCLUDED_EMAILS,
-            "should_skip_processing": should_skip,
-            "would_process_normally": not should_skip,
-            "conversation_id": data.get('data', {}).get('item', {}).get('id'),
-            "topic": data.get('topic')
-        }), 200
-
-    except Exception as e:
-        return jsonify({
-            "error": f"Error testing email filter: {str(e)}"
-        }), 500
 
 
 @app.route('/health', methods=['GET'])

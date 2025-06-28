@@ -1,8 +1,6 @@
 import os
 import re
 import requests
-import json
-
 
 class AsanaClient:
     def __init__(self):
