@@ -66,7 +66,7 @@ except Exception as e:
     import traceback
     print(f"   Полный traceback:")
     traceback.print_exc()
-    asana_client = None
+    intercom_client = None
 
 print("=== Конец инициализации Intercom клиента ===\n")
 
@@ -211,32 +211,41 @@ def handle_webhook():
         topic = data.get('topic')
 
         print(f"Получен webhook - Topic: {topic}, Conversation ID: {conversation_id}")
-
-        # Проверяем, нужно ли пропустить обработку на основе email автора
-        if should_skip_processing(data):
-            return jsonify({
-                "status": "skipped",
-                "reason": "Author email in exclusion list",
-                "conversation_id": conversation_id,
-                "topic": topic
-            }), 200
-
-        # Логируем полученные данные для отладки
         print(f"Полные данные webhook: {data}")
 
         if not asana_client:
             print("Asana клиент не настроен")
             return jsonify({"status": "error", "message": "Asana client not configured"}), 500
 
+        if not intercom_client:
+            print("Intercom клиент не настроен")
+            return jsonify({"status": "error", "message": "Intercom client not configured"}), 500
+
         if not conversation_id:
             print("Conversation ID не найден в webhook данных")
             return jsonify({"status": "ok", "message": "No conversation ID found"}), 200
 
-        # Ищем задачу по conversation ID
         task = asana_client.find_task_by_conversation_id(conversation_id)
 
         if task:
             print(f"Найдена задача: {task['name']} (GID: {task['gid']})")
+
+            asana_task_url = generate_asana_task_url(asana_client.project_gid, task['gid'])
+            print(f"Ссылка на задачу в Asana: {asana_task_url}")
+
+            link_result = intercom_client.set_conversation_asana_link(conversation_id, asana_task_url)
+            if link_result:
+                print(f"Ссылка на задачу в Asana успешно установлена для Conversation ID {conversation_id}")
+            else:
+                print(f"Не удалось установить ссылку на задачу в Asana для Conversation ID {conversation_id}")
+
+            if should_skip_processing(data):
+                return jsonify({
+                    "status": "skipped",
+                    "reason": "Author email in exclusion list",
+                    "conversation_id": conversation_id,
+                    "topic": topic
+                }), 200
 
             # Перемещаем задачу в целевую секцию
             success = asana_client.move_task_to_section(task['gid'])
@@ -257,15 +266,6 @@ def handle_webhook():
                     "task_gid": task['gid'],
                     "error": "Не удалось переместить задачу"
                 }), 200
-
-            asana_task_url = generate_asana_task_url(asana_client.project_gid, task['gid'])
-            print(f"Ссылка на задачу в Asana: {asana_task_url}")
-
-            link_result = intercom_client.set_conversation_asana_link(conversation_id, asana_task_url)
-            if link_result.get('updated'):
-                print(f"Ссылка на задачу в Asana успешно установлена для Conversation ID {conversation_id}")
-            else:
-                print(f"Не удалось установить ссылку на задачу в Asana для Conversation ID {conversation_id}")
 
         else:
             print(f"Задача с Conversation ID {conversation_id} не найдена")
