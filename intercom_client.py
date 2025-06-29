@@ -33,8 +33,10 @@ class IntercomClient:
             response = requests.get(f"{self.base_url}/me", headers=self.headers, timeout=10)
 
             if response.status_code == 200:
-                user_data = response.json()['data']
+                user_data = response.json()
                 print(f"✅ Подключение к Intercom успешно! Пользователь: {user_data.get('name', 'Unknown')}")
+                print(f"Тип пользователя: {user_data.get('type', 'Unknown')}")
+                print(f"Email: {user_data.get('email', 'Unknown')}")
             else:
                 print(f"❌ Ошибка подключения к Intercom: {response.status_code}")
                 print(f"Response: {response.text}")
