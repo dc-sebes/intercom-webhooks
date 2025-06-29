@@ -124,7 +124,7 @@ class IntercomClient:
                 "custom_attributes": custom_attributes
             }
 
-            response = self._make_request('PUT', f'conversations/{conversation_id}', json=data)
+            response = self._make_request('PUT', f'conversations/{conversation_id}', data=data)
 
             if response:
                 return response
